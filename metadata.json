@@ -1,0 +1,8 @@
+{
+  "name": "ContentForge AI",
+  "description": "An expert digital marketing strategist, viral content creator, and monetization specialist for faceless YouTube and Facebook channels.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
