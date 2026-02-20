@@ -1,111 +1,244 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { NicheAnalysis, StrategyPlan, VideoConcept, StoryboardScene } from "./types";
+import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
+import { NicheAnalysis, StrategyPlan, VideoConcept, StoryboardScene, GroundingSource } from "./types";
 
 /**
- * Enhanced retry logic with jittered exponential backoff.
+ * Enhanced retry logic with exponential backoff and jitter for rate-limited requests.
  */
-async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1500): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 3000): Promise<T> {
   try {
     return await fn();
   } catch (error: any) {
-    if (retries <= 0) throw error;
-    
     const status = error?.status || 0;
     const message = error?.message?.toLowerCase() || "";
+    const isBusy = status === 429 || message.includes("429") || message.includes("quota") || message.includes("resource_exhausted");
     
-    // Specifically handle 429 (Rate Limit) with longer pauses
-    const isRateLimit = status === 429 || message.includes("429") || message.includes("quota");
-    const delay = isRateLimit ? baseDelay * 3 : baseDelay;
-    
-    // Jittered delay to prevent thundering herd
-    const jitter = Math.random() * 500;
-    const finalDelay = delay + jitter;
+    if (isBusy && retries > 0) {
+      const delay = baseDelay * (4 - retries);
+      const jitter = Math.random() * 1000;
+      await new Promise(resolve => setTimeout(resolve, delay + jitter));
+      return withRetry(fn, retries - 1, baseDelay);
+    }
 
-    console.warn(`API Error: ${message}. Retrying in ${Math.round(finalDelay)}ms... (Attempts left: ${retries})`);
-    
-    await new Promise(resolve => setTimeout(resolve, finalDelay));
-    return withRetry(fn, retries - 1, delay * 2);
+    if (isBusy) {
+      throw new Error("AI Capacity Reached. Please wait 60 seconds for the node to cool down.");
+    }
+    throw error;
   }
 }
 
 /**
- * Robust JSON extraction from AI responses.
- * Handles markdown blocks, leading/trailing text, and multiple JSON fragments.
+ * Standardized system instruction for the AI agent.
  */
-function selfHealJson(text: string): any {
-  if (!text) return null;
-  
-  const clean = text.trim();
-  
-  try {
-    return JSON.parse(clean);
-  } catch (e) {
-    // Attempt to find the largest JSON-like structure (object or array)
-    const jsonRegex = /({[\s\S]*}|\[[\s\S]*\])/;
-    const match = clean.match(jsonRegex);
-    
-    if (match) {
-      try {
-        return JSON.parse(match[0]);
-      } catch (innerE) {
-        // Last ditch effort: replace common AI artifacts
-        const sanitized = match[0]
-          .replace(/,\s*([}\]])/g, '$1') // remove trailing commas
-          .replace(/([{,]\s*)([a-zA-Z0-9_]+):/g, '$1"$2":'); // quote keys
-        try {
-          return JSON.parse(sanitized);
-        } catch (finalE) {
-          console.error("JSON Self-healing failed completely on block:", match[0]);
-        }
-      }
-    }
-  }
-  throw new Error("Invalid response format from Intelligence Engine.");
+const SYSTEM_INSTRUCTION = `You are ContentForge AI — the world's most advanced digital marketing strategist and viral content engineer.
+Your specialty is the 'Faceless Empire' framework: creating high-CPM, high-retention channels without showing a face.
+Output MUST be strict JSON matching the provided schema. No markdown wrapping, no chatter.
+Focus on psychological triggers, engagement hooks, and SEO optimization.`;
+
+/**
+ * Extracts grounding chunks from the response metadata.
+ */
+function extractSources(response: GenerateContentResponse): GroundingSource[] {
+  const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  return chunks
+    .filter((chunk: any) => chunk.web)
+    .map((chunk: any) => ({
+      title: chunk.web.title || "Reference",
+      uri: chunk.web.uri
+    }));
 }
 
-const SYSTEM_INSTRUCTION = `You are ContentForge AI — an expert digital marketing strategist for faceless channels. 
-Your mission is to help users build, manage, and monetize automated content channels across YouTube and Facebook.
-Focus on high-retention storytelling, psychological hooks, and actionable growth steps.
-Strictly adhere to the requested JSON schema. Do not include preamble or conversational filler.`;
-
+/**
+ * Analyzes a niche using real-time search grounding.
+ */
 export async function analyzeNiche(niche: string): Promise<NicheAnalysis> {
   return withRetry(async () => {
-    // Correctly initialize GoogleGenAI with direct API key access per instance
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Perform a comprehensive market analysis for the "${niche}" faceless content niche.`,
+      contents: `Execute deep market intelligence report for: ${niche}`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             name: { type: Type.STRING },
-            trendScore: { type: Type.NUMBER, description: "1-10 scale" },
+            trendScore: { type: Type.NUMBER, description: "Market heat (0-10)" },
             competition: { type: Type.STRING, enum: ["Low", "Medium", "High"] },
-            monetization: { type: Type.STRING },
-            longevity: { type: Type.STRING },
-            platformFit: { type: Type.STRING },
+            monetization: { type: Type.STRING, description: "Primary revenue path" },
+            longevity: { type: Type.STRING, description: "Projected market life" },
+            platformFit: { type: Type.STRING, description: "Primary platform recommendation" },
           },
           required: ["name", "trendScore", "competition", "monetization", "longevity", "platformFit"],
         },
       },
     });
-    const data = selfHealJson(response.text);
-    // Logical Parameter Guard: Ensure trendScore is normalized
-    if (data) data.trendScore = Math.min(10, Math.max(0, data.trendScore));
+    const result = JSON.parse(response.text || "{}");
+    result.sources = extractSources(response);
+    return result;
+  });
+}
+
+/**
+ * Generates a retention-engineered script using Thinking Config for deep reasoning.
+ */
+export async function generateScript(concept: VideoConcept): Promise<string> {
+  return withRetry(async () => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `Compose high-retention script for concept: "${concept.title}". 
+      Hook: ${concept.hook}. Structure: ${concept.structure}.
+      Format: Use [SCENE: description] markers for visual cues.`,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        thinkingConfig: { thinkingBudget: 8000 },
+      },
+    });
+    return response.text || "Production failure: Script engine offline.";
+  });
+}
+
+/**
+ * Splits a script into visual scenes for the storyboard.
+ */
+export async function splitScriptIntoStoryboard(script: string): Promise<StoryboardScene[]> {
+  return withRetry(async () => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Convert script into storyboard scenes:\n\n${script}`,
+      config: {
+        systemInstruction: "You are a professional cinematographer.",
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              text: { type: Type.STRING, description: "Voiceover text" },
+              visualPrompt: { type: Type.STRING, description: "Image generation prompt" },
+              duration: { type: Type.NUMBER, description: "Seconds" },
+            },
+            required: ["id", "text", "visualPrompt", "duration"],
+          },
+        },
+      },
+    });
+    return JSON.parse(response.text || "[]");
+  });
+}
+
+/**
+ * Generates a viral hook set.
+ */
+export async function generateViralHooks(concept: VideoConcept): Promise<{hook: string, reason: string}[]> {
+  return withRetry(async () => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: `Engineer 5 viral hooks for: ${concept.title}`,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              hook: { type: Type.STRING },
+              reason: { type: Type.STRING },
+            },
+            required: ["hook", "reason"],
+          },
+        },
+      },
+    });
+    return JSON.parse(response.text || "[]");
+  });
+}
+
+/**
+ * Generates cinematic visuals using the image model.
+ */
+export async function generateImageForScene(visualPrompt: string): Promise<string> {
+  return withRetry(async () => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: {
+        parts: [{ text: `Cinematic 4k high-definition faceless stock footage style: ${visualPrompt}. Moody, professional, shallow depth of field.` }],
+      },
+      config: {
+        imageConfig: { aspectRatio: "16:9" },
+      },
+    });
+    const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (part?.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    throw new Error("Visual synthesizer busy.");
+  });
+}
+
+/**
+ * Generates high-quality voiceover.
+ */
+export async function generateVoiceover(text: string): Promise<string> {
+  return withRetry(async () => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text: `Tone: Enthusiastic & Professional. Content: ${text}` }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' },
+          },
+        },
+      },
+    });
+    const data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!data) throw new Error("Voice production failed.");
     return data;
+  });
+}
+
+/**
+ * Compiles video using Veo (VEO-3.1-fast).
+ */
+export async function compileVideoWithVeo(prompt: string, images: string[]): Promise<string> {
+  return withRetry(async () => {
+    // Note: Caller must handle API key selection if needed for Veo.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt: `Cinematic faceless video production: ${prompt}`,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: '16:9'
+      }
+    });
+    
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+    
+    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!downloadLink) throw new Error("Production error: Video compilation failed.");
+    return `${downloadLink}&key=${process.env.API_KEY}`;
   });
 }
 
 export async function generateStrategy(niche: string, platform: string): Promise<StrategyPlan> {
   return withRetry(async () => {
-    // Correctly initialize GoogleGenAI with direct API key access per instance
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `Develop a tactical 90-day roadmap for a ${niche} channel targeting ${platform}.`,
+      contents: `Generate 90-day growth roadmap for ${niche} on ${platform}`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
@@ -129,19 +262,19 @@ export async function generateStrategy(niche: string, platform: string): Promise
         },
       },
     });
-    return selfHealJson(response.text);
+    return JSON.parse(response.text || "{}");
   });
 }
 
 export async function generateVideoConcepts(niche: string): Promise<VideoConcept[]> {
   return withRetry(async () => {
-    // Correctly initialize GoogleGenAI with direct API key access per instance
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Engineered 5 viral faceless video concepts for: ${niche}.`,
+      model: 'gemini-3-pro-preview',
+      contents: `Engineer 5 viral faceless video concepts for niche: ${niche}`,
       config: {
         systemInstruction: SYSTEM_INSTRUCTION,
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -156,84 +289,33 @@ export async function generateVideoConcepts(niche: string): Promise<VideoConcept
                 type: Type.OBJECT,
                 properties: {
                   description: { type: Type.STRING },
-                  tags: { type: Type.ARRAY, items: { type: Type.STRING } }
+                  tags: { type: Type.ARRAY, items: { type: Type.STRING } },
                 },
-                required: ["description", "tags"]
-              }
+                required: ["description", "tags"],
+              },
             },
-            required: ["title", "hook", "structure", "visualDirection", "seo"]
-          }
-        },
-      },
-    });
-    return selfHealJson(response.text);
-  });
-}
-
-export async function generateScript(concept: VideoConcept): Promise<string> {
-  return withRetry(async () => {
-    // Correctly initialize GoogleGenAI with direct API key access per instance
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: `Script Request: "${concept.title}". Format: Narrative-style, high-retention, includes [visual cues]. Context: ${concept.structure}.`,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        // Pro model with thinking budget for higher quality creative writing
-        thinkingConfig: { thinkingBudget: 4000 }
-      },
-    });
-    return response.text || "Failed to produce script content.";
-  });
-}
-
-export async function splitScriptIntoStoryboard(script: string): Promise<StoryboardScene[]> {
-  return withRetry(async () => {
-    // Correctly initialize GoogleGenAI with direct API key access per instance
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Sequence the following script into visual storyboard scenes:\n\n${script}`,
-      config: {
-        systemInstruction: "You are a lead storyboard director. Break down scripts into high-impact visual segments.",
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              text: { type: Type.STRING },
-              visualPrompt: { type: Type.STRING },
-              duration: { type: Type.NUMBER },
-            },
-            required: ["id", "text", "visualPrompt", "duration"],
+            required: ["title", "hook", "structure", "visualDirection", "seo"],
           },
         },
       },
     });
-    return selfHealJson(response.text);
+    const results = JSON.parse(response.text || "[]");
+    const sources = extractSources(response);
+    return results.map((r: any) => ({ ...r, sources }));
   });
 }
 
-export async function generateImageForScene(visualPrompt: string): Promise<string> {
+export async function getTrendingGlobalNiches(): Promise<any[]> {
   return withRetry(async () => {
-    // Correctly initialize GoogleGenAI with direct API key access per instance
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [{ text: `Professional, cinematic b-roll footage frame: ${visualPrompt}. Faceless stock style, 4k, hyper-realistic, bokeh background.` }],
-      },
+      model: 'gemini-3-pro-preview',
+      contents: "Identify the top 5 highest-growth faceless YouTube/FB niches for 2025 based on current trends.",
       config: {
-        imageConfig: { aspectRatio: "16:9" },
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
       },
     });
-
-    const part = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    if (part?.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
-    }
-    throw new Error("Image Buffer Empty.");
+    return JSON.parse(response.text || "[]");
   });
 }

@@ -26,6 +26,12 @@ export interface VideoConcept {
     description: string;
     tags: string[];
   };
+  sources?: GroundingSource[];
+}
+
+export interface GroundingSource {
+  title: string;
+  uri: string;
 }
 
 export interface StoryboardScene {
@@ -51,6 +57,7 @@ export interface NicheAnalysis {
   monetization: string;
   longevity: string;
   platformFit: string;
+  sources?: GroundingSource[];
 }
 
 export interface ChatMessage {

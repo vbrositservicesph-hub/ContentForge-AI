@@ -1,87 +1,89 @@
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ContentForge AI - Faceless Content Empire</title>
+    <title>ContentForge AI - Pro Creator Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       :root {
         color-scheme: dark;
+        --bg-main: #020617;
       }
       body {
-        font-family: 'Inter', sans-serif;
-        background-color: #0a0f18;
-        color: #f8fafc;
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        background-color: var(--bg-main);
+        background-image: 
+          radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.12) 0%, transparent 40%),
+          radial-gradient(circle at 100% 100%, rgba(29, 78, 216, 0.08) 0%, transparent 40%);
+        color: #f1f5f9;
         -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
         overflow: hidden;
       }
-      /* Custom Scrollbar */
-      .custom-scrollbar::-webkit-scrollbar {
-        width: 4px;
-      }
-      .custom-scrollbar::-webkit-scrollbar-track {
-        background: rgba(15, 23, 42, 0.1);
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb {
-        background: rgba(59, 130, 246, 0.2);
-        border-radius: 10px;
-      }
-      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-        background: rgba(59, 130, 246, 0.5);
-      }
-      /* Root Scrollbar */
+
+      /* Minimal Scrollbar */
       ::-webkit-scrollbar {
-        width: 6px;
+        width: 4px;
+        height: 4px;
       }
       ::-webkit-scrollbar-track {
-        background: #0d1320;
+        background: transparent;
       }
       ::-webkit-scrollbar-thumb {
-        background: #1e293b;
-        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #334155;
+        background: rgba(37, 99, 235, 0.4);
       }
-      /* Animations */
-      .animate-in {
-        animation-duration: 0.6s;
-        animation-fill-mode: both;
+      
+      .glass {
+        background: rgba(15, 23, 42, 0.8);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.05);
       }
+      
+      .glass-card {
+        background: rgba(30, 41, 59, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .glass-card:hover {
+        background: rgba(30, 41, 59, 0.5);
+        border-color: rgba(37, 99, 235, 0.2);
+        transform: translateY(-2px);
+      }
+
+      .active-nav {
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        box-shadow: 0 8px 20px -6px rgba(37, 99, 235, 0.5);
+      }
+
       @keyframes fade-in {
-        from { opacity: 0; }
-        to { opacity: 1; }
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
       }
-      @keyframes slide-in-from-top {
-        from { transform: translateY(-20px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
+      .animate-fade {
+        animation: fade-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
-      @keyframes slide-in-from-right {
-        from { transform: translateX(20px); opacity: 0; }
-        to { transform: translateX(0); opacity: 1; }
+
+      textarea::selection {
+        background: rgba(37, 99, 235, 0.4);
       }
-      @keyframes slide-in-from-bottom {
-        from { transform: translateY(20px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
+
+      /* Custom scrollbar for inner areas */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 3px;
       }
-      @keyframes zoom-in {
-        from { transform: scale(0.95); opacity: 0; }
-        to { transform: scale(1); opacity: 1; }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.05);
       }
-      .fade-in { animation-name: fade-in; }
-      .slide-in-from-top-4 { animation-name: slide-in-from-top; }
-      .slide-in-from-right-8 { animation-name: slide-in-from-right; }
-      .slide-in-from-bottom-8 { animation-name: slide-in-from-bottom; }
-      .zoom-in-95 { animation-name: zoom-in; }
     </style>
     <script type="importmap">
     {
       "imports": {
-        "@/": "./",
         "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
         "react": "https://esm.sh/react@^19.2.4",
         "react/": "https://esm.sh/react@^19.2.4/",
@@ -90,8 +92,10 @@
       }
     }
     </script>
-  </head>
+  <link rel="stylesheet" href="/index.css">
+</head>
   <body>
     <div id="root"></div>
-  </body>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>
